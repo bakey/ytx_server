@@ -1,0 +1,291 @@
+#include <def.h>
+#include <log_class.h>
+#include <mysql/mysql.h>
+#include <config_class.h>
+#include <xml_write.h>
+#include <regular.h>
+#include <html_class.h>
+#include <utility_class.h>
+#include <handle_letv.h>
+#include <mysql_client.h>
+#include <direct_traverse.h>
+
+config_ptr g_conf;
+log_ptr g_log;
+db_conn_t *g_mysql = NULL;
+html_c g_html;
+char *g_sql = NULL;
+char *g_html_doc = NULL;
+char *g_url = NULL;
+
+bool util_path_file(char *path, char *file)
+{
+	if (path == NULL || file == NULL)
+	{
+		return false;
+	}
+	
+	int length = strlen(path);
+	char *tmp = path + length - 1;
+	if (*tmp == '/')
+	{
+		*tmp = 0;
+		tmp++;
+	}
+	while (length > 0 && *tmp != '/')
+	{
+		tmp--;
+		length--;
+	}
+	
+	tmp++;
+	strcpy(file, tmp);
+	
+	return true;
+}
+
+int visit(char *file, void *handle_ptr, void *bak_path)
+{
+	if (g_html.html_open_file(file, "utf-8"))
+	{
+		html_node_ptr node = g_html.html_xpath_node("/html/body/div[3]/h1/span");
+		if (node != NULL)
+		{
+			char *title = html_c::html_node_value(node);
+			if (title != NULL)
+			{
+				node = g_html.html_xpath_node("/html/body/div[3]/div/div/div/div/div/div/div/a");
+				if (node != NULL)
+				{
+					
+					char *seed_url = html_c::html_node_prop(node, "href");
+					if (seed_url != NULL)
+					{
+						char file_id[100] = { 0 };
+						util_path_file(file, file_id);
+						memset(g_sql, 0, 1024 * 1024);
+						snprintf(g_sql, 1024 * 1024 * 1 - 1, "insert into " 
+						"douban_pic(douban_id, name, seed_url, handle) values(%s, \"%s\","
+						"\"%s\", 0);", file_id, title, seed_url);
+						//cout<<title<<"\n"<<seed_url<<"\n"<<file_id<<"\n"<<g_sql<<endl;
+						db_query(g_mysql, g_sql);
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		cout<<"open file fail!\n"<<endl;
+	}
+	
+	return 0;
+}
+
+int visit_2(char *file, void *handle_ptr, void *bak_path)
+{
+	handle_letv *tv = (handle_letv *)handle_ptr;
+	fstream is_stream;
+	is_stream.open(file, ios::in);
+	if (is_stream.is_open())
+	{
+		memset(g_html_doc, 0, 1024 * 1024 * 10);
+		is_stream.read(g_html_doc, 1024 * 1024 * 10);
+		memset(g_url, 0, 1024);
+		char *space_tmp = g_html_doc + sizeof(uint32);
+		uint32 length = *(uint32 *)g_html_doc;
+		space_tmp[length] = 0;
+		space_tmp = strstr(space_tmp, "\n");
+		if (space_tmp != NULL)
+		{
+			space_tmp++;
+			sscanf(space_tmp, "%s\n", g_url);
+			space_tmp = space_tmp + strlen(g_url) + 1;
+			tv->handle_html(g_url, space_tmp);
+		}
+		cout<<g_url<<endl;
+	}
+	else
+	{
+		cout<<"open file fail!\n";
+	}
+	is_stream.close();
+	
+	return 0;
+}
+
+int visit_3(char *file, void *handle_ptr, void *bak_path)
+{
+	if (g_html.html_open_file(file, "utf-8"))
+	{
+		int i = 0;
+		for (i = 1; i < 1000000; i++)
+		{
+			char xpath_tmp[600] = { 0 };
+			char *title = NULL;
+			char *year = NULL;
+			char *douban_rating = NULL;
+			char *douban_id = NULL;
+			char *pic_url = NULL;
+			snprintf(xpath_tmp, sizeof(xpath_tmp), "/film-sets/resource[%d]/title", i);
+			html_node_ptr node = g_html.html_xpath_node(xpath_tmp);
+			if (node != NULL)
+			{
+				title = html_c::html_node_value(node);
+				if (title != NULL)
+				{
+					memset(xpath_tmp, 0, sizeof(xpath_tmp));
+					snprintf(xpath_tmp, sizeof(xpath_tmp), "/film-sets/resource[%d]/avatar_middle", i);
+					node = g_html.html_xpath_node(xpath_tmp);
+					if (node != NULL)
+					{
+						pic_url = html_c::html_node_value(node);
+						if (pic_url != NULL)
+						{
+							memset(xpath_tmp, 0, sizeof(xpath_tmp));
+							snprintf(xpath_tmp, sizeof(xpath_tmp), "/film-sets/resource[%d]/douban_id", i);
+							node = g_html.html_xpath_node(xpath_tmp);
+							if (node != NULL)
+							{
+							
+								douban_id = html_c::html_node_value(node);
+								if (douban_id != NULL)
+								{
+									
+									memset(xpath_tmp, 0, sizeof(xpath_tmp));
+									snprintf(xpath_tmp, sizeof(xpath_tmp), "/film-sets/resource[%d]/year", i);
+									node = g_html.html_xpath_node(xpath_tmp);
+									if (node != NULL)
+									{
+										year = html_c::html_node_value(node);
+									}
+									
+									memset(xpath_tmp, 0, sizeof(xpath_tmp));
+									snprintf(xpath_tmp, sizeof(xpath_tmp), "/film-sets/resource[%d]/douban_rating", i);
+									node = g_html.html_xpath_node(xpath_tmp);
+									if (node != NULL)
+									{
+										douban_rating = html_c::html_node_value(node);
+									}
+									
+									if (douban_rating != NULL && year != NULL)
+									{
+										memset(g_sql, 0, 1024 * 1024);
+										snprintf(g_sql, 1024 * 1024 * 1 - 1, "insert into " 
+									"douban_out(douban_id, title, pic_url, year, douban_rating) values(%s, \"%s\","
+									"\"%s\", \"%s\", %d);", douban_id, title, pic_url, year, (int)(atof(douban_rating) * 10));
+									}
+									else if (douban_rating != NULL && year == NULL)
+									{
+										memset(g_sql, 0, 1024 * 1024);
+										snprintf(g_sql, 1024 * 1024 * 1 - 1, "insert into " 
+									"douban_out(douban_id, title, pic_url, douban_rating) values(%s, \"%s\","
+									"\"%s\", %d);", douban_id, title, pic_url,  (int)(atof(douban_rating) * 10));
+									}
+									else if (douban_rating == NULL && year != NULL)
+									{
+										memset(g_sql, 0, 1024 * 1024);
+										snprintf(g_sql, 1024 * 1024 * 1 - 1, "insert into " 
+									"douban_out(douban_id, title, pic_url, year) values(%s, \"%s\","
+									"\"%s\", \"%s\");", douban_id, title, pic_url, year);
+									}
+									else
+									{
+										memset(g_sql, 0, 1024 * 1024);
+										snprintf(g_sql, 1024 * 1024 * 1 - 1, "insert into " 
+									"douban_out(douban_id, title, pic_url) values(%s, \"%s\","
+									"\"%s\");", douban_id, title, pic_url);
+									}
+									cout<<title<<endl;
+									cout<<douban_id<<endl;
+									cout<<pic_url<<endl;
+									cout<<douban_rating<<endl;
+									cout<<year<<endl;
+									getchar();
+									db_query(g_mysql, g_sql);
+								}
+							}
+						}
+					}
+				}
+			}
+			else
+			{
+				break;
+			}
+		}
+	}
+	else
+	{
+		cout<<"open file fail!\n"<<endl;
+	}
+	
+	return 0;
+}
+int main()
+{
+	#if 0
+	g_html_doc = (char *)malloc(1024 * 1024 * 10);
+	NEW_CHECK(g_html_doc);
+	memset(g_html_doc, 0, 1024 * 1024 * 10);
+	g_url = (char *)malloc(1024 * 1);
+	NEW_CHECK(g_url);
+	memset(g_url, 0, 1024);
+	
+	xml_write_c xml_tmp(2, "hello", "../data/", 1024 * 1024 * 100);
+	handle_letv tv(&xml_tmp);
+	direct_traverse("/usr/yuyong/spider/data/html/1", 1, visit_2, &tv, NULL);
+	
+	free(g_html_doc);
+	free(g_url);
+	#endif
+	
+	#if 1
+	g_sql = (char *)malloc(1024 * 1024);
+	NEW_CHECK(g_sql);
+	g_mysql = db_connect("127.0.0.1", "root", "yy123456", 
+			"douban", NULL, 3306);
+	if (g_mysql == NULL)
+	{
+		cout<<"open mysql fail!\n"<<endl;
+		return -1;
+	}
+	
+	direct_traverse("/usr/yuyong/c_code/xml_project_6/data/bak/youku", 1, visit_3, NULL, NULL);
+	
+	db_close(&g_mysql);
+	free(g_sql);
+	#endif
+	
+	#if 0
+	xml_write_c xml_tmp(2, "hello", "../data/", 1000);
+	handle_letv tv(&xml_tmp);
+	fstream is_stream;
+	char *html_doc = (char *)malloc(1024 * 1024 *10);
+	if (html_doc == NULL)
+	{
+		cout<<"malloc error!\n";
+		exit(-1);
+	}
+	
+	is_stream.open("../data/1.html", ios::in);
+	
+	if (is_stream.is_open())
+	{
+		is_stream.read(html_doc, 1024 * 1024 * 10);
+		char tmp[300] = { 0 };
+		sprintf(tmp, "%s", "http://so.letv.com/film/89804.html");
+		tv.hanle_html(tmp, html_doc);
+	}
+	else
+	{
+		cout<<"open file fail!\n";
+	}
+	is_stream.close();
+	#endif
+	
+	return 0;
+}
+
+
+
